@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright (c) 2013-2021 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,11 +15,12 @@
  */
 package org.redisson.client.protocol.decoder;
 
+import java.util.Collections;
 import java.util.List;
 
+import org.redisson.client.codec.Codec;
 import org.redisson.client.handler.State;
-
-import io.netty.buffer.ByteBuf;
+import org.redisson.client.protocol.Decoder;
 
 /**
  * 
@@ -29,19 +30,36 @@ import io.netty.buffer.ByteBuf;
  */
 public class ObjectListReplayDecoder<T> implements MultiDecoder<List<T>> {
 
-    @Override
-    public Object decode(ByteBuf buf, State state) {
-        throw new UnsupportedOperationException();
+    private final Decoder<Object> decoder;
+    private final boolean reverse;
+
+    public ObjectListReplayDecoder() {
+        this(false);
+    }
+
+    public ObjectListReplayDecoder(boolean reverse) {
+        this(reverse, null);
+    }
+
+    public ObjectListReplayDecoder(boolean reverse, Decoder<Object> decoder) {
+        super();
+        this.reverse = reverse;
+        this.decoder = decoder;
     }
 
     @Override
     public List<T> decode(List<Object> parts, State state) {
+        if (reverse) {
+            Collections.reverse(parts);
+        }
         return (List<T>) parts;
     }
 
     @Override
-    public boolean isApplicable(int paramNum, State state) {
-        return false;
+    public Decoder<Object> getDecoder(Codec codec, int paramNum, State state) {
+        if (decoder != null) {
+            return decoder;
+        }
+        return MultiDecoder.super.getDecoder(codec, paramNum, state);
     }
-
 }

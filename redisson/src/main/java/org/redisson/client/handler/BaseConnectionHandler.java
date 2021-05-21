@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright (c) 2013-2021 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,20 +17,21 @@ package org.redisson.client.handler;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.redisson.api.RFuture;
 import org.redisson.client.RedisClient;
 import org.redisson.client.RedisClientConfig;
 import org.redisson.client.RedisConnection;
+import org.redisson.client.RedisLoadingException;
 import org.redisson.client.protocol.RedisCommands;
 import org.redisson.misc.RPromise;
 import org.redisson.misc.RedissonPromise;
 
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.util.concurrent.Future;
-import io.netty.util.concurrent.FutureListener;
 
 /**
  * 
@@ -59,13 +60,17 @@ public abstract class BaseConnectionHandler<C extends RedisConnection> extends C
     abstract C createConnection(ChannelHandlerContext ctx);
     
     @Override
-    public void channelActive(final ChannelHandlerContext ctx) throws Exception {
-        final AtomicInteger commandsCounter = new AtomicInteger();
+    public void channelActive(final ChannelHandlerContext ctx) {
         List<RFuture<Object>> futures = new ArrayList<RFuture<Object>>();
 
         RedisClientConfig config = redisClient.getConfig();
         if (config.getPassword() != null) {
-            RFuture<Object> future = connection.async(RedisCommands.AUTH, config.getPassword());
+            RFuture<Object> future;
+            if (config.getUsername() != null) {
+                future = connection.async(RedisCommands.AUTH, config.getUsername(), config.getPassword());
+            } else {
+                future = connection.async(RedisCommands.AUTH, config.getPassword());
+            }
             futures.add(future);
         }
         if (config.getDatabase() != 0) {
@@ -80,6 +85,10 @@ public abstract class BaseConnectionHandler<C extends RedisConnection> extends C
             RFuture<Object> future = connection.async(RedisCommands.READONLY);
             futures.add(future);
         }
+        if (config.getPingConnectionInterval() > 0) {
+            RFuture<Object> future = connection.async(RedisCommands.PING);
+            futures.add(future);
+        }
         
         if (futures.isEmpty()) {
             ctx.fireChannelActive();
@@ -87,20 +96,26 @@ public abstract class BaseConnectionHandler<C extends RedisConnection> extends C
             return;
         }
         
-        commandsCounter.set(futures.size());
+        final AtomicBoolean retry = new AtomicBoolean();
+        final AtomicInteger commandsCounter = new AtomicInteger(futures.size());
         for (RFuture<Object> future : futures) {
-            future.addListener(new FutureListener<Object>() {
-                @Override
-                public void operationComplete(Future<Object> future) throws Exception {
-                    if (!future.isSuccess()) {
-                        connection.closeAsync();
-                        connectionPromise.tryFailure(future.cause());
+            future.onComplete((res, e) -> {
+                if (e != null) {
+                    if (e instanceof RedisLoadingException) {
+                        if (retry.compareAndSet(false, true)) {
+                            ctx.executor().schedule(() -> {
+                                channelActive(ctx);
+                            }, 1, TimeUnit.SECONDS);
+                        }
                         return;
                     }
-                    if (commandsCounter.decrementAndGet() == 0) {
-                        ctx.fireChannelActive();
-                        connectionPromise.trySuccess(connection);
-                    }
+                    connection.closeAsync();
+                    connectionPromise.tryFailure(e);
+                    return;
+                }
+                if (commandsCounter.decrementAndGet() == 0) {
+                    ctx.fireChannelActive();
+                    connectionPromise.trySuccess(connection);
                 }
             });
         }

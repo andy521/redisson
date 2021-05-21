@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright (c) 2013-2021 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,22 +15,25 @@
  */
 package org.redisson.connection;
 
-import java.net.InetAddress;
-import java.net.URI;
-import java.net.UnknownHostException;
+import java.net.InetSocketAddress;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
-import org.redisson.client.RedisConnectionException;
+import org.redisson.api.RFuture;
+import org.redisson.client.RedisClient;
 import org.redisson.connection.ClientConnectionsEntry.FreezeReason;
-import org.redisson.misc.URIBuilder;
+import org.redisson.misc.RedisURI;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import io.netty.util.concurrent.GlobalEventExecutor;
+import io.netty.resolver.AddressResolver;
+import io.netty.resolver.AddressResolverGroup;
+import io.netty.util.concurrent.Future;
+import io.netty.util.concurrent.FutureListener;
 import io.netty.util.concurrent.ScheduledFuture;
 
 /**
@@ -43,29 +46,24 @@ public class DNSMonitor {
     
     private static final Logger log = LoggerFactory.getLogger(DNSMonitor.class);
 
+    private final AddressResolver<InetSocketAddress> resolver;
+    private final ConnectionManager connectionManager;
+    private final Map<RedisURI, InetSocketAddress> masters = new HashMap<>();
+    private final Map<RedisURI, InetSocketAddress> slaves = new HashMap<>();
+    
     private ScheduledFuture<?> dnsMonitorFuture;
-    
-    private ConnectionManager connectionManager;
-
-    private final Map<URI, InetAddress> masters = new HashMap<URI, InetAddress>();
-    private final Map<URI, InetAddress> slaves = new HashMap<URI, InetAddress>();
-    
     private long dnsMonitoringInterval;
 
-    public DNSMonitor(ConnectionManager connectionManager, Set<URI> masterHosts, Set<URI> slaveHosts, long dnsMonitoringInterval) {
-        for (URI host : masterHosts) {
-            try {
-                masters.put(host, InetAddress.getByName(host.getHost()));
-            } catch (UnknownHostException e) {
-                throw new RedisConnectionException("Unknown host: " + host.getHost(), e);
-            }
-        }
-        for (URI host : slaveHosts) {
-            try {
-                slaves.put(host, InetAddress.getByName(host.getHost()));
-            } catch (UnknownHostException e) {
-                throw new RedisConnectionException("Unknown host: " + host.getHost(), e);
-            }
+    public DNSMonitor(ConnectionManager connectionManager, RedisClient masterHost, Collection<RedisURI> slaveHosts, long dnsMonitoringInterval, AddressResolverGroup<InetSocketAddress> resolverGroup) {
+        this.resolver = resolverGroup.getResolver(connectionManager.getGroup().next());
+        
+        masterHost.resolveAddr().syncUninterruptibly();
+        masters.put(masterHost.getConfig().getAddress(), masterHost.getAddr());
+        
+        for (RedisURI host : slaveHosts) {
+            Future<InetSocketAddress> resolveFuture = resolver.resolve(InetSocketAddress.createUnresolved(host.getHost(), host.getPort()));
+            resolveFuture.syncUninterruptibly();
+            slaves.put(host, resolveFuture.getNow());
         }
         this.connectionManager = connectionManager;
         this.dnsMonitoringInterval = dnsMonitoringInterval;
@@ -83,56 +81,115 @@ public class DNSMonitor {
     }
     
     private void monitorDnsChange() {
-        dnsMonitorFuture = GlobalEventExecutor.INSTANCE.schedule(new Runnable() {
+        dnsMonitorFuture = connectionManager.getGroup().schedule(new Runnable() {
             @Override
             public void run() {
-                // As InetAddress.getByName call is blocking. Method should be run in dedicated thread 
-                connectionManager.getExecutor().execute(new Runnable() {
-                    @Override
-                    public void run() {
-                        try {
-                            for (Entry<URI, InetAddress> entry : masters.entrySet()) {
-                                InetAddress master = entry.getValue();
-                                InetAddress now = InetAddress.getByName(entry.getKey().getHost());
-                                if (!now.getHostAddress().equals(master.getHostAddress())) {
-                                    log.info("Detected DNS change. {} has changed from {} to {}", entry.getKey().getHost(), master.getHostAddress(), now.getHostAddress());
-                                    for (MasterSlaveEntry entrySet : connectionManager.getEntrySet()) {
-                                        if (entrySet.getClient().getAddr().getHostName().equals(entry.getKey().getHost())
-                                                && entrySet.getClient().getAddr().getPort() == entry.getKey().getPort()) {
-                                            entrySet.changeMaster(entry.getKey());
-                                        }
-                                    }
-                                    masters.put(entry.getKey(), now);
-                                    log.info("Master {} has been changed", entry.getKey().getHost());
-                                }
-                            }
-                            
-                            for (Entry<URI, InetAddress> entry : slaves.entrySet()) {
-                                InetAddress slave = entry.getValue();
-                                InetAddress updatedSlave = InetAddress.getByName(entry.getKey().getHost());
-                                if (!updatedSlave.getHostAddress().equals(slave.getHostAddress())) {
-                                    log.info("Detected DNS change. {} has changed from {} to {}", entry.getKey().getHost(), slave.getHostAddress(), updatedSlave.getHostAddress());
-                                    for (MasterSlaveEntry masterSlaveEntry : connectionManager.getEntrySet()) {
-                                        URI uri = URIBuilder.create("redis://" + slave.getHostAddress() + ":" + entry.getKey().getPort());
-                                        if (masterSlaveEntry.slaveDown(uri, FreezeReason.MANAGER)) {
-                                            masterSlaveEntry.slaveUp(entry.getKey(), FreezeReason.MANAGER);
-                                        }
-                                    }
-                                    slaves.put(entry.getKey(), updatedSlave);
-                                    log.info("Slave {} has been changed", entry.getKey().getHost());
-                                }
-                            }
-                            
-                        } catch (Exception e) {
-                            log.error(e.getMessage(), e);
-                        } finally {
-                            monitorDnsChange();
-                        }
-                    }
-                });
+                if (connectionManager.isShuttingDown()) {
+                    return;
+                }
+                
+                AtomicInteger counter = new AtomicInteger(masters.size() + slaves.size());
+                monitorMasters(counter);
+                monitorSlaves(counter);
             }
 
         }, dnsMonitoringInterval, TimeUnit.MILLISECONDS);
+    }
+
+    private void monitorMasters(AtomicInteger counter) {
+        for (Entry<RedisURI, InetSocketAddress> entry : masters.entrySet()) {
+            log.debug("Request sent to resolve ip address for master host: {}", entry.getKey().getHost());
+
+            Future<InetSocketAddress> resolveFuture = resolver.resolve(InetSocketAddress.createUnresolved(entry.getKey().getHost(), entry.getKey().getPort()));
+            resolveFuture.addListener(new FutureListener<InetSocketAddress>() {
+                @Override
+                public void operationComplete(Future<InetSocketAddress> future) throws Exception {
+                    if (counter.decrementAndGet() == 0) {
+                        monitorDnsChange();
+                    }
+
+                    if (!future.isSuccess()) {
+                        log.error("Unable to resolve " + entry.getKey().getHost(), future.cause());
+                        return;
+                    }
+
+                    log.debug("Resolved ip: {} for master host: {}", future.getNow().getAddress(), entry.getKey().getHost());
+
+                    InetSocketAddress currentMasterAddr = entry.getValue();
+                    InetSocketAddress newMasterAddr = future.getNow();
+                    if (!newMasterAddr.getAddress().equals(currentMasterAddr.getAddress())) {
+                        log.info("Detected DNS change. Master {} has changed ip from {} to {}", 
+                                entry.getKey(), currentMasterAddr.getAddress().getHostAddress(),
+                                newMasterAddr.getAddress().getHostAddress());
+
+                        MasterSlaveEntry masterSlaveEntry = connectionManager.getEntry(currentMasterAddr);
+                        if (masterSlaveEntry == null) {
+                            log.error("Unable to find entry for current master {}", currentMasterAddr);
+                            return;
+                        }
+
+                        RFuture<RedisClient> changeFuture = masterSlaveEntry.changeMaster(newMasterAddr, entry.getKey());
+                        changeFuture.onComplete((r, e) -> {
+                            if (e == null) {
+                                masters.put(entry.getKey(), newMasterAddr);
+                            }
+                        });
+                    }
+                }
+            });
+        }
+    }
+
+    private void monitorSlaves(AtomicInteger counter) {
+        for (Entry<RedisURI, InetSocketAddress> entry : slaves.entrySet()) {
+            log.debug("Request sent to resolve ip address for slave host: {}", entry.getKey().getHost());
+
+            Future<InetSocketAddress> resolveFuture = resolver.resolve(InetSocketAddress.createUnresolved(entry.getKey().getHost(), entry.getKey().getPort()));
+            resolveFuture.addListener(new FutureListener<InetSocketAddress>() {
+                @Override
+                public void operationComplete(Future<InetSocketAddress> future) throws Exception {
+                    if (counter.decrementAndGet() == 0) {
+                        monitorDnsChange();
+                    }
+
+                    if (!future.isSuccess()) {
+                        log.error("Unable to resolve " + entry.getKey().getHost(), future.cause());
+                        return;
+                    }
+
+                    log.debug("Resolved ip: {} for slave host: {}", future.getNow().getAddress(), entry.getKey().getHost());
+
+                    InetSocketAddress currentSlaveAddr = entry.getValue();
+                    InetSocketAddress newSlaveAddr = future.getNow();
+                    if (!newSlaveAddr.getAddress().equals(currentSlaveAddr.getAddress())) {
+                        log.info("Detected DNS change. Slave {} has changed ip from {} to {}", 
+                                entry.getKey().getHost(), currentSlaveAddr.getAddress().getHostAddress(), newSlaveAddr.getAddress().getHostAddress());
+                        for (MasterSlaveEntry masterSlaveEntry : connectionManager.getEntrySet()) {
+                            if (!masterSlaveEntry.hasSlave(currentSlaveAddr)) {
+                                continue;
+                            }
+                            
+                            if (masterSlaveEntry.hasSlave(newSlaveAddr)) {
+                                masterSlaveEntry.slaveUp(newSlaveAddr, FreezeReason.MANAGER);
+                                masterSlaveEntry.slaveDown(currentSlaveAddr, FreezeReason.MANAGER);
+                            } else {
+                                RFuture<Void> addFuture = masterSlaveEntry.addSlave(newSlaveAddr, entry.getKey());
+                                addFuture.onComplete((res, e) -> {
+                                    if (e != null) {
+                                        log.error("Can't add slave: " + newSlaveAddr, e);
+                                        return;
+                                    }
+                                    
+                                    masterSlaveEntry.slaveDown(currentSlaveAddr, FreezeReason.MANAGER);
+                                });
+                            }
+                            break;
+                        }
+                        slaves.put(entry.getKey(), newSlaveAddr);
+                    }
+                }
+            });
+        }
     }
 
     

@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright (c) 2013-2021 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,10 +19,10 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
+import org.redisson.client.codec.Codec;
+import org.redisson.client.codec.StringCodec;
 import org.redisson.client.handler.State;
-
-import io.netty.buffer.ByteBuf;
-import io.netty.util.CharsetUtil;
+import org.redisson.client.protocol.Decoder;
 
 /**
  * 
@@ -32,20 +32,15 @@ import io.netty.util.CharsetUtil;
 public class ListResultReplayDecoder implements MultiDecoder<List<Map<Object, Object>>> {
 
     @Override
-    public Object decode(ByteBuf buf, State state) {
-        return buf.toString(CharsetUtil.UTF_8);
+    public Decoder<Object> getDecoder(Codec codec, int paramNum, State state) {
+        return StringCodec.INSTANCE.getValueDecoder();
     }
-
+    
     @Override
     @SuppressWarnings("unchecked")
     public List<Map<Object, Object>> decode(List<Object> parts, State state) {
         Map<Object, Object>[] res = parts.toArray(new Map[parts.size()]);
         return Arrays.asList(res);
-    }
-
-    @Override
-    public boolean isApplicable(int paramNum, State state) {
-        return true;
     }
 
 }

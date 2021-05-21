@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright (c) 2013-2021 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@ package org.redisson.remote;
 
 import java.io.Serializable;
 import java.util.Arrays;
-import java.util.List;
 
 import org.redisson.api.RemoteInvocationOptions;
 
@@ -30,9 +29,10 @@ public class RemoteServiceRequest implements Serializable {
 
     private static final long serialVersionUID = -1711385312384040075L;
     
-    private String requestId;
+    private String id;
+    private String executorId;
     private String methodName;
-    private List<String> signatures;
+    private long[] signature;
     private Object[] args;
     private RemoteInvocationOptions options;
     private long date;
@@ -41,15 +41,16 @@ public class RemoteServiceRequest implements Serializable {
     public RemoteServiceRequest() {
     }
     
-    public RemoteServiceRequest(String requestId) {
-        this.requestId = requestId;
+    public RemoteServiceRequest(String id) {
+        this.id = id;
     }
     
-    public RemoteServiceRequest(String requestId, String methodName, List<String> signatures, Object[] args, RemoteInvocationOptions options, long date) {
+    public RemoteServiceRequest(String executorId, String id, String methodName, long[] signature, Object[] args, RemoteInvocationOptions options, long date) {
         super();
-        this.requestId = requestId;
+        this.id = id;
+        this.executorId = executorId;
         this.methodName = methodName;
-        this.signatures = signatures;
+        this.signature = signature;
         this.args = args;
         this.options = options;
         this.date = date;
@@ -59,18 +60,22 @@ public class RemoteServiceRequest implements Serializable {
         return date;
     }
     
-    public String getRequestId() {
-        return requestId;
+    public String getExecutorId() {
+        return executorId;
+    }
+    
+    public String getId() {
+        return id;
     }
 
     public Object[] getArgs() {
         return args;
     }
 
-    public List<String> getSignatures() {
-        return signatures;
+    public long[] getSignature() {
+        return signature;
     }
-
+    
     public RemoteInvocationOptions getOptions() {
         return options;
     }
@@ -81,8 +86,8 @@ public class RemoteServiceRequest implements Serializable {
 
     @Override
     public String toString() {
-        return "RemoteServiceRequest [requestId=" + requestId + ", methodName=" + methodName + ", signatures=["
-                + Arrays.toString(signatures.toArray()) + "], args="
+        return "RemoteServiceRequest [requestId=" + id + ", methodName=" + methodName + ", signature="
+                + Arrays.toString(signature) + ", args="
                 + Arrays.toString(args) + ", options=" + options + ", date=" + date + "]";
     }
 

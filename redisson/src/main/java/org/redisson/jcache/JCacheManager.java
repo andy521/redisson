@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright (c) 2013-2021 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -38,7 +38,6 @@ import javax.management.NotCompliantMBeanException;
 import javax.management.ObjectName;
 
 import org.redisson.Redisson;
-import org.redisson.api.RedissonClient;
 import org.redisson.jcache.bean.EmptyStatisticsMXBean;
 import org.redisson.jcache.bean.JCacheManagementMXBean;
 import org.redisson.jcache.bean.JCacheStatisticsMXBean;
@@ -67,7 +66,7 @@ public class JCacheManager implements CacheManager {
     
     private final Redisson redisson;
     
-    JCacheManager(Redisson redisson, ClassLoader classLoader, CachingProvider cacheProvider, Properties properties, URI uri) {
+    public JCacheManager(Redisson redisson, ClassLoader classLoader, CachingProvider cacheProvider, Properties properties, URI uri) {
         super();
         this.classLoader = classLoader;
         this.cacheProvider = cacheProvider;
@@ -207,7 +206,7 @@ public class JCacheManager implements CacheManager {
     }
     
     public void closeCache(JCache<?, ?> cache) {
-        caches.remove(cache.getName());
+        caches.remove(cache.getRawName());
         unregisterStatisticsBean(cache);
         unregisterManagementBean(cache);
     }
@@ -287,7 +286,7 @@ public class JCacheManager implements CacheManager {
     private String getName(String name, JCache<?, ?> cache) {
         return "javax.cache:type=Cache" + name + ",CacheManager="
                 + cache.getCacheManager().getURI().toString().replaceAll(",|:|=|\n", ".") 
-                + ",Cache=" + cache.getName().replaceAll(",|:|=|\n", ".");
+                + ",Cache=" + cache.getRawName().replaceAll(",|:|=|\n", ".");
     }
     
     @Override
@@ -355,9 +354,11 @@ public class JCacheManager implements CacheManager {
             return;
         }
 
-        synchronized (cacheProvider) {
+        synchronized (this) {
             if (!isClosed()) {
-                cacheProvider.close(uri, classLoader);
+                if (cacheProvider != null) {
+                    cacheProvider.close(uri, classLoader);
+                }
                 for (Cache<?, ?> cache : caches.values()) {
                     try {
                         cache.close();
@@ -365,7 +366,9 @@ public class JCacheManager implements CacheManager {
                         // skip
                     }
                 }
-                redisson.shutdown();
+                if (redisson != null) {
+                    redisson.shutdown();
+                }
                 closed = true;
             }
         }

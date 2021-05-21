@@ -1,37 +1,23 @@
 package org.redisson;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
-import org.junit.Assert;
-import org.junit.Test;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.dataformat.avro.AvroMapper;
+import com.fasterxml.jackson.dataformat.avro.AvroSchema;
+import io.netty.buffer.ByteBuf;
+import net.bytebuddy.utility.RandomString;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.redisson.api.RBucket;
 import org.redisson.api.RMap;
 import org.redisson.api.RedissonClient;
 import org.redisson.client.codec.Codec;
-import org.redisson.client.codec.JsonJacksonMapCodec;
-import org.redisson.codec.AvroJacksonCodec;
-import org.redisson.codec.CborJacksonCodec;
-import org.redisson.codec.FstCodec;
-import org.redisson.codec.JsonJacksonCodec;
-import org.redisson.codec.KryoCodec;
-import org.redisson.codec.LZ4Codec;
-import org.redisson.codec.MsgPackJacksonCodec;
-import org.redisson.codec.SerializationCodec;
-import org.redisson.codec.SmileJacksonCodec;
-import org.redisson.codec.SnappyCodec;
+import org.redisson.codec.*;
 import org.redisson.config.Config;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.dataformat.avro.AvroMapper;
-import com.fasterxml.jackson.dataformat.avro.AvroSchema;
+import java.io.IOException;
+import java.util.*;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 public class RedissonCodecTest extends BaseTest {
     private Codec smileCodec = new SmileJacksonCodec();
@@ -41,9 +27,10 @@ public class RedissonCodecTest extends BaseTest {
     private Codec cborCodec = new CborJacksonCodec();
     private Codec fstCodec = new FstCodec();
     private Codec snappyCodec = new SnappyCodec();
-    private Codec msgPackCodec = new MsgPackJacksonCodec();
+    private Codec snappyCodecV2 = new SnappyCodecV2();
+//    private Codec msgPackCodec = new MsgPackJacksonCodec();
     private Codec lz4Codec = new LZ4Codec();
-    private Codec jsonListOfStringCodec = new JsonJacksonMapCodec(
+    private Codec jsonListOfStringCodec = new TypedJsonJacksonCodec(
                     new TypeReference<String>() {}, new TypeReference<List<String>>() {});
 
     @Test
@@ -64,14 +51,14 @@ public class RedissonCodecTest extends BaseTest {
         test(redisson);
     }
     
-    @Test
-    public void testMsgPack() {
-        Config config = createConfig();
-        config.setCodec(msgPackCodec);
-        RedissonClient redisson = Redisson.create(config);
-
-        test(redisson);
-    }
+//    @Test
+//    public void testMsgPack() {
+//        Config config = createConfig();
+//        config.setCodec(msgPackCodec);
+//        RedissonClient redisson = Redisson.create(config);
+//
+//        test(redisson);
+//    }
     
     @Test
     public void testSmile() {
@@ -108,6 +95,15 @@ public class RedissonCodecTest extends BaseTest {
     }
 
     @Test
+    public void testSnappyBig() throws IOException {
+        SnappyCodec sc = new SnappyCodec();
+        String randomData = RandomString.make(Short.MAX_VALUE*2 + 142);
+        ByteBuf g = sc.getValueEncoder().encode(randomData);
+        String decompressedData = (String) sc.getValueDecoder().decode(g, null);
+        assertThat(decompressedData).isEqualTo(randomData);
+    }
+    
+    @Test
     public void testSnappy() {
         Config config = createConfig();
         config.setCodec(snappyCodec);
@@ -115,6 +111,25 @@ public class RedissonCodecTest extends BaseTest {
 
         test(redisson);
     }
+    
+    @Test
+    public void testSnappyV2() {
+        Config config = createConfig();
+        config.setCodec(snappyCodecV2);
+        RedissonClient redisson = Redisson.create(config);
+
+        test(redisson);
+    }
+    
+    @Test
+    public void testSnappyBigV2() throws IOException {
+        Codec sc = new SnappyCodecV2();
+        String randomData = RandomString.make(Short.MAX_VALUE*2 + 142);
+        ByteBuf g = sc.getValueEncoder().encode(randomData);
+        String decompressedData = (String) sc.getValueDecoder().decode(g, null);
+        assertThat(decompressedData).isEqualTo(randomData);
+    }
+
 
     @Test
     public void testJson() {
@@ -174,7 +189,7 @@ public class RedissonCodecTest extends BaseTest {
 
         map.fastPut(1, a);
         Map<String, Object> resa = map.get(1);
-        Assert.assertEquals(a, resa);
+        Assertions.assertEquals(a, resa);
 
         Set<TestObject> set = redisson.getSet("set");
 
@@ -184,9 +199,9 @@ public class RedissonCodecTest extends BaseTest {
         set.add(new TestObject("3", "4"));
         set.add(new TestObject("5", "6"));
 
-        Assert.assertTrue(set.contains(new TestObject("2", "3")));
-        Assert.assertTrue(set.contains(new TestObject("1", "2")));
-        Assert.assertFalse(set.contains(new TestObject("1", "9")));
+        Assertions.assertTrue(set.contains(new TestObject("2", "3")));
+        Assertions.assertTrue(set.contains(new TestObject("1", "2")));
+        Assertions.assertFalse(set.contains(new TestObject("1", "9")));
         
         redisson.shutdown();
     }

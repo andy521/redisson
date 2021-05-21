@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright (c) 2013-2021 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,13 +15,13 @@
  */
 package org.redisson.api;
 
-import java.util.concurrent.TimeUnit;
+import reactor.core.publisher.Mono;
 
-import org.reactivestreams.Publisher;
+import java.util.concurrent.TimeUnit;
 
 
 /**
- * Object holder. Max size of object is 512MB
+ * Reactive implementation of object holder. Max size of object is 512MB
  *
  * @author Nikita Koksharov
  *
@@ -34,20 +34,118 @@ public interface RBucketReactive<V> extends RExpirableReactive {
      * 
      * @return object size
      */
-    Publisher<Long> size();
+    Mono<Long> size();
     
-    Publisher<Boolean> trySet(V value);
+    /**
+     * Tries to set element atomically into empty holder.
+     * 
+     * @param value - value to set
+     * @return {@code true} if successful, or {@code false} if
+     *         element was already set
+     */
+    Mono<Boolean> trySet(V value);
 
-    Publisher<Boolean> trySet(V value, long timeToLive, TimeUnit timeUnit);
+    /**
+     * Tries to set element atomically into empty holder with defined <code>timeToLive</code> interval.
+     * 
+     * @param value - value to set
+     * @param timeToLive - time to live interval
+     * @param timeUnit - unit of time to live interval
+     * @return {@code true} if successful, or {@code false} if
+     *         element was already set
+     */
+    Mono<Boolean> trySet(V value, long timeToLive, TimeUnit timeUnit);
 
-    Publisher<Boolean> compareAndSet(V expect, V update);
+    /**
+     * Sets value only if it's already exists.
+     *
+     * @param value - value to set
+     * @return {@code true} if successful, or {@code false} if
+     *         element wasn't set
+     */
+    Mono<Boolean> setIfExists(V value);
 
-    Publisher<V> getAndSet(V newValue);
+    /**
+     * Sets value only if it's already exists.
+     *
+     * @param value - value to set
+     * @param timeToLive - time to live interval
+     * @param timeUnit - unit of time to live interval
+     * @return {@code true} if successful, or {@code false} if
+     *         element wasn't set
+     */
+    Mono<Boolean> setIfExists(V value, long timeToLive, TimeUnit timeUnit);
 
-    Publisher<V> get();
+    /**
+     * Atomically sets the value to the given updated value
+     * only if serialized state of the current value equals 
+     * to serialized state of the expected value.
+     *
+     * @param expect the expected value
+     * @param update the new value
+     * @return {@code true} if successful; or {@code false} if the actual value
+     *         was not equal to the expected value.
+     */
+    Mono<Boolean> compareAndSet(V expect, V update);
 
-    Publisher<Void> set(V value);
+    /**
+     * Retrieves current element in the holder and replaces it with <code>newValue</code>. 
+     * 
+     * @param newValue - value to set
+     * @return previous value
+     */
+    Mono<V> getAndSet(V newValue);
 
-    Publisher<Void> set(V value, long timeToLive, TimeUnit timeUnit);
+    /**
+     * Retrieves current element in the holder and replaces it with <code>newValue</code> with defined <code>timeToLive</code> interval. 
+     * 
+     * @param value - value to set
+     * @param timeToLive - time to live interval
+     * @param timeUnit - unit of time to live interval
+     * @return previous value
+     */
+    Mono<V> getAndSet(V value, long timeToLive, TimeUnit timeUnit);
+    
+    /**
+     * Retrieves element stored in the holder.
+     * 
+     * @return element
+     */
+    Mono<V> get();
+    
+    /**
+     * Retrieves element in the holder and removes it.
+     * 
+     * @return element
+     */
+    Mono<V> getAndDelete();
+
+    /**
+     * Stores element into the holder. 
+     * 
+     * @param value - value to set
+     * @return void
+     */
+    Mono<Void> set(V value);
+
+    /**
+     * Stores element into the holder with defined <code>timeToLive</code> interval.
+     * 
+     * @param value - value to set
+     * @param timeToLive - time to live interval
+     * @param timeUnit - unit of time to live interval
+     * @return void
+     */
+    Mono<Void> set(V value, long timeToLive, TimeUnit timeUnit);
+
+    /**
+     * Set value and keep existing TTL.
+     * <p>
+     * Requires <b>Redis 6.0.0 and higher.</b>
+     *
+     * @param value - value to set
+     * @return void
+     */
+    Mono<Void> setAndKeepTTL(V value);
 
 }

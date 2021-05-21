@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright (c) 2013-2021 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,20 +15,15 @@
  */
 package org.redisson.api;
 
-import java.util.List;
-import java.util.concurrent.TimeUnit;
-
 import org.redisson.client.RedisException;
 import org.redisson.client.codec.Codec;
 
 /**
- * Interface for using pipeline feature.
+ * Interface for using Redis pipeline feature.
  * <p>
- * All method invocations on objects
- * from this interface are batched to separate queue and could be executed later
+ * All method invocations on objects got through this interface 
+ * are batched to separate queue and could be executed later
  * with <code>execute()</code> or <code>executeAsync()</code> methods.
- * <p>
- * Please be aware, atomicity <b>is not</b> guaranteed.
  *
  *
  * @author Nikita Koksharov
@@ -36,6 +31,28 @@ import org.redisson.client.codec.Codec;
  */
 public interface RBatch {
 
+    /**
+     * Returns stream instance by <code>name</code>
+     * 
+     * @param <K> type of key
+     * @param <V> type of value
+     * @param name of stream
+     * @return RStream object
+     */
+    <K, V> RStreamAsync<K, V> getStream(String name);
+    
+    /**
+     * Returns stream instance by <code>name</code>
+     * using provided <code>codec</code> for entries.
+     * 
+     * @param <K> type of key
+     * @param <V> type of value
+     * @param name - name of stream
+     * @param codec - codec for entry
+     * @return RStream object
+     */
+    <K, V> RStreamAsync<K, V> getStream(String name, Codec codec);
+    
     /**
      * Returns geospatial items holder instance by <code>name</code>.
      * 
@@ -271,13 +288,12 @@ public interface RBatch {
     /**
      * Returns topic instance by name.
      *
-     * @param <M> type of message
      * @param name - name of object
      * @return Topic object
      */
-    <M> RTopicAsync<M> getTopic(String name);
+    RTopicAsync getTopic(String name);
 
-    <M> RTopicAsync<M> getTopic(String name, Codec codec);
+    RTopicAsync getTopic(String name, Codec codec);
 
     /**
      * Returns queue instance by name.
@@ -360,6 +376,12 @@ public interface RBatch {
      */
     RLexSortedSetAsync getLexSortedSet(String name);
 
+    /**
+     * Returns bitSet instance by name.
+     *
+     * @param name - name of object
+     * @return BitSet object
+     */
     RBitSetAsync getBitSet(String name);
 
     /**
@@ -369,6 +391,14 @@ public interface RBatch {
      */
     RScriptAsync getScript();
 
+    /**
+     * Returns script operations object using provided codec.
+     * 
+     * @param codec - codec for params and result
+     * @return Script object
+     */
+    RScript getScript(Codec codec);
+    
     /**
      * Returns keys operations.
      * Each of Redis/Redisson object associated with own key
@@ -387,7 +417,7 @@ public interface RBatch {
      * @throws RedisException in case of any error
      *
      */
-    List<?> execute() throws RedisException;
+    BatchResult<?> execute() throws RedisException;
 
     /**
      * Executes all operations accumulated during async methods invocations asynchronously.
@@ -397,76 +427,19 @@ public interface RBatch {
      *
      * @return List with result object for each command
      */
-    RFuture<List<?>> executeAsync();
+    RFuture<BatchResult<?>> executeAsync();
 
     /**
-     * Executes all operations accumulated during async methods invocations. 
-     * Command replies are skipped such approach saves response bandwidth.
-     * <p>
-     * If cluster configuration used then operations are grouped by slot ids
-     * and may be executed on different servers. Thus command execution order could be changed.
-     * <p>
-     * NOTE: Redis 3.2+ required
-     *
-     * @throws RedisException in case of any error
-     *
+     * Discard batched commands and release allocated buffers used for parameters encoding.
      */
-    void executeSkipResult();
+    void discard();
 
     /**
-     * Executes all operations accumulated during async methods invocations asynchronously, 
-     * Command replies are skipped such approach saves response bandwidth.
-     * <p>
-     * If cluster configuration used then operations are grouped by slot ids
-     * and may be executed on different servers. Thus command execution order could be changed
-     * <p>
-     * NOTE: Redis 3.2+ required
-     * 
+     * Discard batched commands and release allocated buffers used for parameters encoding.
+     *
      * @return void
-     * @throws RedisException in case of any error
-     *
      */
-    RFuture<Void> executeSkipResultAsync();
-    
-    /**
-     * Defines timeout for Redis response. 
-     * Starts to countdown when Redis command has been successfully sent.
-     * <p>
-     * <code>0</code> value means use <code>Config.setTimeout</code> value instead.
-     * <p>
-     * Default is <code>0</code>
-     * 
-     * @param timeout value
-     * @param unit value
-     * @return self instance
-     */
-    RBatch timeout(long timeout, TimeUnit unit);
+    RFuture<Void> discardAsync();
 
-    /**
-     * Defines time interval for another one attempt send Redis commands batch 
-     * if it hasn't been sent already.
-     * <p>
-     * <code>0</code> value means use <code>Config.setRetryInterval</code> value instead.
-     * <p>
-     * Default is <code>0</code>
-     * 
-     * @param retryInterval value
-     * @param unit value
-     * @return self instance
-     */
-    RBatch retryInterval(long retryInterval, TimeUnit unit);
 
-    /**
-     * Defines attempts amount to re-send Redis commands batch
-     * if it hasn't been sent already.
-     * <p>
-     * <code>0</code> value means use <code>Config.setRetryAttempts</code> value instead.
-     * <p>
-     * Default is <code>0</code>
-     * 
-     * @param retryAttempts value
-     * @return self instance
-     */
-    RBatch retryAttempts(int retryAttempts);
-    
 }

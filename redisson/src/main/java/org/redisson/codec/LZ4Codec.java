@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright (c) 2013-2021 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package org.redisson.codec;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
+import org.redisson.client.codec.BaseCodec;
 import org.redisson.client.codec.Codec;
 import org.redisson.client.handler.State;
 import org.redisson.client.protocol.Decoder;
@@ -32,16 +33,18 @@ import net.jpountz.lz4.LZ4SafeDecompressor;
 /**
  * LZ4 compression codec.
  * Uses inner <code>Codec</code> to convert object to binary stream.
- * <code>FstCodec</code> used by default.
+ * <code>MarshallingCodec</code> used by default.
+ *
+ * Fully thread-safe.
  *
  * https://github.com/jpountz/lz4-java
  *
- * @see org.redisson.codec.FstCodec
+ * @see org.redisson.codec.MarshallingCodec
  *
  * @author Nikita Koksharov
  *
  */
-public class LZ4Codec implements Codec {
+public class LZ4Codec extends BaseCodec {
 
     private static final int DECOMPRESSION_HEADER_SIZE = Integer.SIZE / 8;
     private final LZ4Factory factory = LZ4Factory.fastestInstance();
@@ -49,7 +52,7 @@ public class LZ4Codec implements Codec {
     private final Codec innerCodec;
 
     public LZ4Codec() {
-        this(new FstCodec());
+        this(new MarshallingCodec());
     }
 
     public LZ4Codec(Codec innerCodec) {
@@ -57,9 +60,13 @@ public class LZ4Codec implements Codec {
     }
     
     public LZ4Codec(ClassLoader classLoader) {
-        this(new FstCodec(classLoader));
+        this(new MarshallingCodec(classLoader));
     }
 
+    public LZ4Codec(ClassLoader classLoader, LZ4Codec codec) throws ReflectiveOperationException {
+        this(copy(classLoader, codec.innerCodec));
+    }
+    
     private final Decoder<Object> decoder = new Decoder<Object>() {
         @Override
         public Object decode(ByteBuf buf, State state) throws IOException {
@@ -107,26 +114,6 @@ public class LZ4Codec implements Codec {
             }
         }
     };
-
-    @Override
-    public Decoder<Object> getMapValueDecoder() {
-        return getValueDecoder();
-    }
-
-    @Override
-    public Encoder getMapValueEncoder() {
-        return getValueEncoder();
-    }
-
-    @Override
-    public Decoder<Object> getMapKeyDecoder() {
-        return getValueDecoder();
-    }
-
-    @Override
-    public Encoder getMapKeyEncoder() {
-        return getValueEncoder();
-    }
 
     @Override
     public Decoder<Object> getValueDecoder() {

@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright (c) 2013-2021 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,10 +15,9 @@
  */
 package org.redisson.pubsub;
 
-import java.util.Iterator;
-import java.util.LinkedHashSet;
-import java.util.Set;
-import java.util.concurrent.CountDownLatch;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 
@@ -27,85 +26,88 @@ import java.util.concurrent.CountDownLatch;
  */
 public class AsyncSemaphore {
 
-    private int counter;
-    private final Set<Runnable> listeners = new LinkedHashSet<Runnable>();
+    private final AtomicInteger counter;
+    private final Queue<Runnable> listeners = new ConcurrentLinkedQueue<>();
+    private final Set<Runnable> removedListeners = Collections.newSetFromMap(new ConcurrentHashMap<>());
 
     public AsyncSemaphore(int permits) {
-        counter = permits;
+        counter = new AtomicInteger(permits);
     }
     
-    public void acquireUninterruptibly() {
-        final CountDownLatch latch = new CountDownLatch(1);
-        acquire(new Runnable() {
-            @Override
-            public void run() {
-                latch.countDown();
-            }
-        });
+    public boolean tryAcquire(long timeoutMillis) {
+        CountDownLatch latch = new CountDownLatch(1);
+        Runnable runnable = () -> latch.countDown();
+        acquire(runnable);
         
         try {
-            latch.await();
+            boolean r = latch.await(timeoutMillis, TimeUnit.MILLISECONDS);
+            if (!r) {
+                remove(runnable);
+            }
+            return r;
         } catch (InterruptedException e) {
+            remove(runnable);
             Thread.currentThread().interrupt();
+            return false;
         }
     }
 
     public int queueSize() {
-        synchronized (this) {
-            return listeners.size();
-        }
+        return listeners.size() - removedListeners.size();
     }
     
     public void removeListeners() {
-        synchronized (this) {
-            listeners.clear();
-        }
+        listeners.clear();
+        removedListeners.clear();
     }
     
     public void acquire(Runnable listener) {
-        boolean run = false;
-        
-        synchronized (this) {
-            if (counter == 0) {
-                listeners.add(listener);
+        listeners.add(listener);
+        tryRun();
+    }
+
+    private void tryRun() {
+        if (counter.get() == 0
+                || listeners.peek() == null) {
+            return;
+        }
+
+        if (counter.decrementAndGet() >= 0) {
+            Runnable listener = listeners.poll();
+            if (listener == null) {
+                counter.incrementAndGet();
                 return;
             }
-            if (counter > 0) {
-                counter--;
-                run = true;
+
+            if (removedListeners.remove(listener)) {
+                counter.incrementAndGet();
+                tryRun();
+            } else {
+                listener.run();
             }
-        }
-        
-        if (run) {
-            listener.run();
-        }
-    }
-    
-    public boolean remove(Runnable listener) {
-        synchronized (this) {
-            return listeners.remove(listener);
+        } else {
+            counter.incrementAndGet();
         }
     }
 
+    public void remove(Runnable listener) {
+        removedListeners.add(listener);
+    }
+
     public int getCounter() {
-        return counter;
+        return counter.get();
+    }
+
+    public void release() {
+        counter.incrementAndGet();
+        tryRun();
+    }
+
+    @Override
+    public String toString() {
+        return "value:" + counter + ":queue:" + queueSize();
     }
     
-    public void release() {
-        Runnable runnable = null;
-        
-        synchronized (this) {
-            counter++;
-            Iterator<Runnable> iter = listeners.iterator();
-            if (iter.hasNext()) {
-                runnable = iter.next();
-                iter.remove();
-            }
-        }
-        
-        if (runnable != null) {
-            acquire(runnable);
-        }
-    }
+    
     
 }

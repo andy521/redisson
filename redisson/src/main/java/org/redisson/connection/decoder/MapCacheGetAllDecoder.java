@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright (c) 2013-2021 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,16 +15,12 @@
  */
 package org.redisson.connection.decoder;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-
-import org.redisson.client.codec.LongCodec;
 import org.redisson.client.handler.State;
 import org.redisson.client.protocol.decoder.MultiDecoder;
 
-import io.netty.buffer.ByteBuf;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * 
@@ -45,16 +41,6 @@ public class MapCacheGetAllDecoder implements MultiDecoder<List<Object>> {
         this.args = args;
         this.shiftIndex = shiftIndex;
         this.allowNulls = allowNulls;
-    }
-
-    @Override
-    public Object decode(ByteBuf buf, State state) throws IOException {
-        return LongCodec.INSTANCE.getValueDecoder().decode(buf, state);
-    }
-
-    @Override
-    public boolean isApplicable(int paramNum, State state) {
-        return false;
     }
 
     @Override

@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright (c) 2013-2021 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,13 +15,12 @@
  */
 package org.redisson.client.protocol.decoder;
 
-import java.math.BigDecimal;
 import java.util.List;
 
+import org.redisson.client.codec.Codec;
+import org.redisson.client.codec.DoubleCodec;
 import org.redisson.client.handler.State;
-
-import io.netty.buffer.ByteBuf;
-import io.netty.util.CharsetUtil;
+import org.redisson.client.protocol.Decoder;
 
 /**
  * 
@@ -32,18 +31,19 @@ import io.netty.util.CharsetUtil;
 public class ObjectFirstScoreReplayDecoder implements MultiDecoder<Double> {
 
     @Override
-    public Object decode(ByteBuf buf, State state) {
-        return new BigDecimal(buf.toString(CharsetUtil.UTF_8)).doubleValue();
+    public Decoder<Object> getDecoder(Codec codec, int paramNum, State state) {
+        if (paramNum % 2 != 0) {
+            return DoubleCodec.INSTANCE.getValueDecoder();
+        }
+        return MultiDecoder.super.getDecoder(codec, paramNum, state);
     }
-
+    
     @Override
     public Double decode(List<Object> parts, State state) {
+        if (parts.isEmpty()) {
+            return null;
+        }
         return (Double) parts.get(1);
-    }
-
-    @Override
-    public boolean isApplicable(int paramNum, State state) {
-        return paramNum % 2 != 0;
     }
 
 }

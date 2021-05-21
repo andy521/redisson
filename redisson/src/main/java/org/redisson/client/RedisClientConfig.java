@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright (c) 2013-2021 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,18 +15,18 @@
  */
 package org.redisson.client;
 
-import java.net.URI;
+import java.net.InetSocketAddress;
+import java.net.URL;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 import org.redisson.config.SslProvider;
+import org.redisson.misc.RedisURI;
 
 import io.netty.channel.EventLoopGroup;
-import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
+import io.netty.resolver.AddressResolverGroup;
 import io.netty.util.Timer;
-import org.redisson.misc.URIBuilder;
 
 /**
  * 
@@ -35,45 +35,108 @@ import org.redisson.misc.URIBuilder;
  */
 public class RedisClientConfig {
 
-    private URI address;
+    private RedisURI address;
+    private InetSocketAddress addr;
     
     private Timer timer;
-    private ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors() * 2);
-    private EventLoopGroup group = new NioEventLoopGroup();
+    private ExecutorService executor;
+    private EventLoopGroup group;
+    private AddressResolverGroup<InetSocketAddress> resolverGroup;
     private Class<? extends SocketChannel> socketChannelClass = NioSocketChannel.class;
     private int connectTimeout = 10000;
     private int commandTimeout = 10000;
-    
+
+    private String username;
     private String password;
     private int database;
     private String clientName;
     private boolean readOnly;
     private boolean keepPubSubOrder = true;
+    private int pingConnectionInterval;
+    private boolean keepAlive;
+    private boolean tcpNoDelay;
     
+    private String sslHostname;
     private boolean sslEnableEndpointIdentification = true;
     private SslProvider sslProvider = SslProvider.JDK;
-    private URI sslTruststore;
+    private URL sslTruststore;
     private String sslTruststorePassword;
-    private URI sslKeystore;
+    private URL sslKeystore;
     private String sslKeystorePassword;
+    private String[] sslProtocols;
+    private NettyHook nettyHook = new DefaultNettyHook();
+
+    public RedisClientConfig() {
+    }
     
-    
+    RedisClientConfig(RedisClientConfig config) {
+        super();
+        this.nettyHook = config.nettyHook;
+        this.addr = config.addr;
+        this.address = config.address;
+        this.timer = config.timer;
+        this.executor = config.executor;
+        this.group = config.group;
+        this.socketChannelClass = config.socketChannelClass;
+        this.connectTimeout = config.connectTimeout;
+        this.commandTimeout = config.commandTimeout;
+        this.password = config.password;
+        this.username = config.username;
+        this.database = config.database;
+        this.clientName = config.clientName;
+        this.readOnly = config.readOnly;
+        this.keepPubSubOrder = config.keepPubSubOrder;
+        this.pingConnectionInterval = config.pingConnectionInterval;
+        this.keepAlive = config.keepAlive;
+        this.tcpNoDelay = config.tcpNoDelay;
+        this.sslEnableEndpointIdentification = config.sslEnableEndpointIdentification;
+        this.sslProvider = config.sslProvider;
+        this.sslTruststore = config.sslTruststore;
+        this.sslTruststorePassword = config.sslTruststorePassword;
+        this.sslKeystore = config.sslKeystore;
+        this.sslKeystorePassword = config.sslKeystorePassword;
+        this.resolverGroup = config.resolverGroup;
+        this.sslHostname = config.sslHostname;
+    }
+
+    public NettyHook getNettyHook() {
+        return nettyHook;
+    }
+    public void setNettyHook(NettyHook nettyHook) {
+        this.nettyHook = nettyHook;
+    }
+
+    public String getSslHostname() {
+        return sslHostname;
+    }
+    public RedisClientConfig setSslHostname(String sslHostname) {
+        this.sslHostname = sslHostname;
+        return this;
+    }
+
     public RedisClientConfig setAddress(String host, int port) {
-        this.address = URIBuilder.create("redis://" + host + ":" + port);
+        this.address = new RedisURI("redis://" + host + ":" + port);
         return this;
     }
     public RedisClientConfig setAddress(String address) {
-        this.address = URIBuilder.create(address);
+        this.address = new RedisURI(address);
         return this;
     }
-    public RedisClientConfig setAddress(URI address) {
+    public RedisClientConfig setAddress(InetSocketAddress addr, RedisURI address) {
+        this.addr = addr;
         this.address = address;
         return this;
     }
-    public URI getAddress() {
+    public RedisClientConfig setAddress(RedisURI address) {
+        this.address = address;
+        return this;
+    }
+    public RedisURI getAddress() {
         return address;
     }
-    
+    public InetSocketAddress getAddr() {
+        return addr;
+    }
     
     public Timer getTimer() {
         return timer;
@@ -131,18 +194,18 @@ public class RedisClientConfig {
         return this;
     }
     
-    public URI getSslTruststore() {
+    public URL getSslTruststore() {
         return sslTruststore;
     }
-    public RedisClientConfig setSslTruststore(URI sslTruststore) {
+    public RedisClientConfig setSslTruststore(URL sslTruststore) {
         this.sslTruststore = sslTruststore;
         return this;
     }
     
-    public URI getSslKeystore() {
+    public URL getSslKeystore() {
         return sslKeystore;
     }
-    public RedisClientConfig setSslKeystore(URI sslKeystore) {
+    public RedisClientConfig setSslKeystore(URL sslKeystore) {
         this.sslKeystore = sslKeystore;
         return this;
     }
@@ -206,8 +269,56 @@ public class RedisClientConfig {
     public boolean isKeepPubSubOrder() {
         return keepPubSubOrder;
     }
-    public void setKeepPubSubOrder(boolean keepPubSubOrder) {
+    public RedisClientConfig setKeepPubSubOrder(boolean keepPubSubOrder) {
         this.keepPubSubOrder = keepPubSubOrder;
+        return this;
     }
 
+    public int getPingConnectionInterval() {
+        return pingConnectionInterval;
+    }    
+    public RedisClientConfig setPingConnectionInterval(int pingConnectionInterval) {
+        this.pingConnectionInterval = pingConnectionInterval;
+        return this;
+    }
+    
+    public boolean isKeepAlive() {
+        return keepAlive;
+    }
+    public RedisClientConfig setKeepAlive(boolean keepAlive) {
+        this.keepAlive = keepAlive;
+        return this;
+    }
+
+    public boolean isTcpNoDelay() {
+        return tcpNoDelay;
+    }
+    public RedisClientConfig setTcpNoDelay(boolean tcpNoDelay) {
+        this.tcpNoDelay = tcpNoDelay;
+        return this;
+    }
+
+    public AddressResolverGroup<InetSocketAddress> getResolverGroup() {
+        return resolverGroup;
+    }
+    public RedisClientConfig setResolverGroup(AddressResolverGroup<InetSocketAddress> resolverGroup) {
+        this.resolverGroup = resolverGroup;
+        return this;
+    }
+
+    public String getUsername() {
+        return username;
+    }
+    public RedisClientConfig setUsername(String username) {
+        this.username = username;
+        return this;
+    }
+
+    public String[] getSslProtocols() {
+        return sslProtocols;
+    }
+    public RedisClientConfig setSslProtocols(String[] sslProtocols) {
+        this.sslProtocols = sslProtocols;
+        return this;
+    }
 }

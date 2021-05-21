@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright (c) 2013-2021 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,6 @@ package org.redisson;
 
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import org.redisson.api.RFuture;
@@ -40,25 +39,30 @@ public class RedissonListMultimapCache<K, V> extends RedissonListMultimap<K, V> 
 
     private final RedissonMultimapCache<K> baseCache;
     
-    RedissonListMultimapCache(UUID id, EvictionScheduler evictionScheduler, CommandAsyncExecutor connectionManager, String name) {
-        super(id, connectionManager, name);
-        evictionScheduler.scheduleCleanMultimap(name, getTimeoutSetName());
-        baseCache = new RedissonMultimapCache<K>(connectionManager, name, codec, getTimeoutSetName());
+    public RedissonListMultimapCache(EvictionScheduler evictionScheduler, CommandAsyncExecutor connectionManager, String name) {
+        super(connectionManager, name);
+        if (evictionScheduler != null) {
+            evictionScheduler.scheduleCleanMultimap(name, getTimeoutSetName());
+        }
+        baseCache = new RedissonMultimapCache<K>(connectionManager, this, getTimeoutSetName(), prefix);
     }
 
-    RedissonListMultimapCache(UUID id, EvictionScheduler evictionScheduler, Codec codec, CommandAsyncExecutor connectionManager, String name) {
-        super(id, codec, connectionManager, name);
-        evictionScheduler.scheduleCleanMultimap(name, getTimeoutSetName());
-        baseCache = new RedissonMultimapCache<K>(connectionManager, name, codec, getTimeoutSetName());
+    public RedissonListMultimapCache(EvictionScheduler evictionScheduler, Codec codec, CommandAsyncExecutor connectionManager, String name) {
+        super(codec, connectionManager, name);
+        if (evictionScheduler != null) {
+            evictionScheduler.scheduleCleanMultimap(name, getTimeoutSetName());
+        }
+        baseCache = new RedissonMultimapCache<K>(connectionManager, this, getTimeoutSetName(), prefix);
     }
 
+    @Override
     public RFuture<Boolean> containsKeyAsync(Object key) {
         ByteBuf keyState = encodeMapKey(key);
         String keyHash = hash(keyState);
 
         String valuesName = getValuesName(keyHash);
         
-        return commandExecutor.evalReadAsync(getName(), codec, RedisCommands.EVAL_BOOLEAN,
+        return commandExecutor.evalReadAsync(getRawName(), codec, RedisCommands.EVAL_BOOLEAN,
                 "local value = redis.call('hget', KEYS[1], ARGV[2]); " +
                 "if value ~= false then " +
                       "local expireDate = 92233720368547758; " +
@@ -72,18 +76,18 @@ public class RedissonListMultimapCache<K, V> extends RedissonListMultimap<K, V> 
                     + "return redis.call('llen', ARGV[3]) > 0 and 1 or 0;" +
                 "end;" +
                 "return 0; ",
-               Arrays.<Object>asList(getName(), getTimeoutSetName()), System.currentTimeMillis(), keyState, valuesName);
+               Arrays.<Object>asList(getRawName(), getTimeoutSetName()), System.currentTimeMillis(), keyState, valuesName);
     }
     
     String getTimeoutSetName() {
-        return "redisson_list_multimap_ttl{" + getName() + "}";
+        return suffixName(getRawName(), "redisson_list_multimap_ttl");
     }
 
-
+    @Override
     public RFuture<Boolean> containsValueAsync(Object value) {
         ByteBuf valueState = encodeMapValue(value);
 
-        return commandExecutor.evalReadAsync(getName(), codec, RedisCommands.EVAL_BOOLEAN,
+        return commandExecutor.evalReadAsync(getRawName(), codec, RedisCommands.EVAL_BOOLEAN,
                 "local keys = redis.call('hgetall', KEYS[1]); " +
                 "for i, v in ipairs(keys) do " +
                     "if i % 2 == 0 then " +
@@ -93,7 +97,7 @@ public class RedissonListMultimapCache<K, V> extends RedissonListMultimap<K, V> 
                           + "expireDate = tonumber(expireDateScore) "
                       + "end; "
                       + "if expireDate > tonumber(ARGV[2]) then " +
-                            "local name = '{' .. KEYS[1] .. '}:' .. v; " +
+                            "local name = ARGV[3] .. v; " +
                       
                             "local items = redis.call('lrange', name, 0, -1) " +
                             "for i=1,#items do " +
@@ -106,16 +110,18 @@ public class RedissonListMultimapCache<K, V> extends RedissonListMultimap<K, V> 
                     "end;" +
                 "end; " +
                 "return 0; ",
-                Arrays.<Object>asList(getName(), getTimeoutSetName()), valueState, System.currentTimeMillis());
+                Arrays.<Object>asList(getRawName(), getTimeoutSetName()),
+                valueState, System.currentTimeMillis(), prefix);
     }
 
+    @Override
     public RFuture<Boolean> containsEntryAsync(Object key, Object value) {
         ByteBuf keyState = encodeMapKey(key);
         String keyHash = hash(keyState);
         ByteBuf valueState = encodeMapValue(value);
 
         String valuesName = getValuesName(keyHash);
-        return commandExecutor.evalReadAsync(getName(), codec, RedisCommands.EVAL_BOOLEAN,
+        return commandExecutor.evalReadAsync(getRawName(), codec, RedisCommands.EVAL_BOOLEAN,
                 "local expireDate = 92233720368547758; " +
                 "local expireDateScore = redis.call('zscore', KEYS[2], ARGV[2]); "
               + "if expireDateScore ~= false then "
@@ -130,24 +136,25 @@ public class RedissonListMultimapCache<K, V> extends RedissonListMultimap<K, V> 
                   "end; " +
                 "end; " +
                 "return 0; ",
-                Arrays.<Object>asList(valuesName, getTimeoutSetName()), System.currentTimeMillis(), keyState, valueState);
+                Arrays.<Object>asList(valuesName, getTimeoutSetName()), 
+                System.currentTimeMillis(), keyState, valueState);
     }
 
     @Override
     public RList<V> get(K key) {
-        ByteBuf keyState = encodeMapKey(key);
-        String keyHash = hashAndRelease(keyState);
+        String keyHash = keyHash(key);
         String valuesName = getValuesName(keyHash);
 
         return new RedissonListMultimapValues<V>(codec, commandExecutor, valuesName, getTimeoutSetName(), key);
     }
 
+    @Override
     public RFuture<Collection<V>> getAllAsync(K key) {
         ByteBuf keyState = encodeMapKey(key);
         String keyHash = hash(keyState);
         String valuesName = getValuesName(keyHash);
         
-        return commandExecutor.evalReadAsync(getName(), codec, RedisCommands.EVAL_LIST,
+        return commandExecutor.evalReadAsync(getRawName(), codec, RedisCommands.EVAL_LIST,
                 "local expireDate = 92233720368547758; " +
                 "local expireDateScore = redis.call('zscore', KEYS[2], ARGV[2]); "
               + "if expireDateScore ~= false then "
@@ -160,18 +167,19 @@ public class RedissonListMultimapCache<K, V> extends RedissonListMultimap<K, V> 
             Arrays.<Object>asList(valuesName, getTimeoutSetName()), System.currentTimeMillis(), keyState);
     }
 
+    @Override
     public RFuture<Collection<V>> removeAllAsync(Object key) {
         ByteBuf keyState = encodeMapKey(key);
         String keyHash = hash(keyState);
 
         String valuesName = getValuesName(keyHash);
-        return commandExecutor.evalWriteAsync(getName(), codec, RedisCommands.EVAL_SET,
+        return commandExecutor.evalWriteAsync(getRawName(), codec, RedisCommands.EVAL_LIST,
                 "redis.call('hdel', KEYS[1], ARGV[1]); " +
                 "local members = redis.call('lrange', KEYS[2], 0, -1); " +
                 "redis.call('del', KEYS[2]); " +
                 "redis.call('zrem', KEYS[3], ARGV[1]); " +
                 "return members; ",
-            Arrays.<Object>asList(getName(), valuesName, getTimeoutSetName()), keyState);
+            Arrays.<Object>asList(getRawName(), valuesName, getTimeoutSetName()), keyState);
     }
 
     @Override
@@ -182,6 +190,11 @@ public class RedissonListMultimapCache<K, V> extends RedissonListMultimap<K, V> 
     @Override
     public RFuture<Boolean> expireKeyAsync(K key, long timeToLive, TimeUnit timeUnit) {
         return baseCache.expireKeyAsync(key, timeToLive, timeUnit);
+    }
+    
+    @Override
+    public RFuture<Long> sizeInMemoryAsync() {
+        return baseCache.sizeInMemoryAsync();
     }
 
     @Override

@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright (c) 2013-2021 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,11 +15,10 @@
  */
 package org.redisson.eviction;
 
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 import org.redisson.command.CommandAsyncExecutor;
-
-import io.netty.util.internal.PlatformDependent;
 
 /**
  * Eviction scheduler.
@@ -32,7 +31,7 @@ import io.netty.util.internal.PlatformDependent;
  */
 public class EvictionScheduler {
 
-    private final ConcurrentMap<String, EvictionTask> tasks = PlatformDependent.newConcurrentHashMap();
+    private final ConcurrentMap<String, EvictionTask> tasks = new ConcurrentHashMap<>();
     private final CommandAsyncExecutor executor;
 
     public EvictionScheduler(CommandAsyncExecutor executor) {
@@ -54,7 +53,15 @@ public class EvictionScheduler {
             task.schedule();
         }
     }
-    
+
+    public void scheduleTimeSeries(String name, String timeoutSetName) {
+        EvictionTask task = new TimeSeriesEvictionTask(name, timeoutSetName, executor);
+        EvictionTask prevTask = tasks.putIfAbsent(name, task);
+        if (prevTask == null) {
+            task.schedule();
+        }
+    }
+
     public void schedule(String name, long shiftInMilliseconds) {
         EvictionTask task = new ScoredSetEvictionTask(name, executor, shiftInMilliseconds);
         EvictionTask prevTask = tasks.putIfAbsent(name, task);
@@ -71,4 +78,11 @@ public class EvictionScheduler {
         }
     }
 
+    public void remove(String name) {
+        EvictionTask task = tasks.remove(name);
+        if (task != null) {
+            task.getScheduledFuture().cancel(false);
+        }
+    }
+    
 }

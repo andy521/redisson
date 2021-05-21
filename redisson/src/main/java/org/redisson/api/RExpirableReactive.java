@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright (c) 2013-2021 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,10 +15,11 @@
  */
 package org.redisson.api;
 
+import java.time.Instant;
 import java.util.Date;
 import java.util.concurrent.TimeUnit;
 
-import org.reactivestreams.Publisher;
+import reactor.core.publisher.Mono;
 
 /**
  * Base  interface for all Redisson objects
@@ -37,25 +38,34 @@ public interface RExpirableReactive extends RObjectReactive {
      * @param timeUnit - timeout time unit
      * @return <code>true</code> if the timeout was set and <code>false</code> if not
      */
-    Publisher<Boolean> expire(long timeToLive, TimeUnit timeUnit);
+    Mono<Boolean> expire(long timeToLive, TimeUnit timeUnit);
 
     /**
-     * Set an expire date for object in  mode. When expire date comes
-     * the key will automatically be deleted.
+     * Use {@link #expireAt(Instant)} instead
      *
      * @param timestamp - expire date
      * @return <code>true</code> if the timeout was set and <code>false</code> if not
      */
-    Publisher<Boolean> expireAt(Date timestamp);
+    @Deprecated
+    Mono<Boolean> expireAt(Date timestamp);
 
     /**
-     * Set an expire date for object in  mode. When expire date comes
-     * the key will automatically be deleted.
+     * Use {@link #expireAt(Instant)} instead
      *
      * @param timestamp - expire date in milliseconds (Unix timestamp)
      * @return <code>true</code> if the timeout was set and <code>false</code> if not
      */
-    Publisher<Boolean> expireAt(long timestamp);
+    @Deprecated
+    Mono<Boolean> expireAt(long timestamp);
+
+    /**
+     * Set an expire date for object. When expire date comes
+     * the key will automatically be deleted.
+     *
+     * @param instant - expire date
+     * @return <code>true</code> if the timeout was set and <code>false</code> if not
+     */
+    Mono<Boolean> expireAt(Instant instant);
 
     /**
      * Clear an expire timeout or expire date for object in  mode.
@@ -63,7 +73,7 @@ public interface RExpirableReactive extends RObjectReactive {
      *
      * @return <code>true</code> if the timeout was cleared and <code>false</code> if not
      */
-    Publisher<Boolean> clearExpire();
+    Mono<Boolean> clearExpire();
 
     /**
      * Get remaining time to live of object in milliseconds.
@@ -72,6 +82,6 @@ public interface RExpirableReactive extends RObjectReactive {
      *          -2 if the key does not exist.
      *          -1 if the key exists but has no associated expire.
      */
-    Publisher<Long> remainTimeToLive();
+    Mono<Long> remainTimeToLive();
 
 }

@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright (c) 2013-2021 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,11 @@
  */
 package org.redisson.config;
 
-import java.net.URI;
+import org.redisson.api.NameMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.net.URL;
 
 /**
  * 
@@ -23,7 +27,9 @@ import java.net.URI;
  *
  * @param <T> config type
  */
-class BaseConfig<T extends BaseConfig<T>> {
+public class BaseConfig<T extends BaseConfig<T>> {
+    
+    private static final Logger log = LoggerFactory.getLogger("config");
 
     /**
      * If pooled connection not used for a <code>timeout</code> time
@@ -33,13 +39,6 @@ class BaseConfig<T extends BaseConfig<T>> {
      *
      */
     private int idleConnectionTimeout = 10000;
-
-    /**
-     * Ping timeout used in <code>Node.ping</code> and <code>Node.pingAll<code> operation.
-     * Value in milliseconds.
-     *
-     */
-    private int pingTimeout = 1000;
 
     /**
      * Timeout during connecting to any Redis server.
@@ -60,28 +59,11 @@ class BaseConfig<T extends BaseConfig<T>> {
     private int retryInterval = 1500;
 
     /**
-     * Reconnection attempt timeout to Redis server then
-     * it has been excluded from internal list of available servers.
-     *
-     * On every such timeout event Redisson tries
-     * to connect to disconnected Redis server.
-     *
-     * @see #failedAttempts
-     *
-     */
-    private int reconnectionTimeout = 3000;
-
-    /**
-     * Redis server will be excluded from the list of available nodes
-     * when sequential unsuccessful execution attempts of any Redis command
-     * reaches <code>failedAttempts</code>.
-     */
-    private int failedAttempts = 3;
-
-    /**
      * Password for Redis authentication. Should be null if not needed
      */
     private String password;
+
+    private String username;
 
     /**
      * Subscriptions per Redis connection limit
@@ -97,13 +79,23 @@ class BaseConfig<T extends BaseConfig<T>> {
     
     private SslProvider sslProvider = SslProvider.JDK;
     
-    private URI sslTruststore;
+    private URL sslTruststore;
     
     private String sslTruststorePassword;
     
-    private URI sslKeystore;
+    private URL sslKeystore;
     
     private String sslKeystorePassword;
+
+    private String[] sslProtocols;
+
+    private int pingConnectionInterval = 30000;
+
+    private boolean keepAlive;
+    
+    private boolean tcpNoDelay = true;
+
+    private NameMapper nameMapper = NameMapper.direct();
 
     
     BaseConfig() {
@@ -111,27 +103,31 @@ class BaseConfig<T extends BaseConfig<T>> {
 
     BaseConfig(T config) {
         setPassword(config.getPassword());
+        setUsername(config.getUsername());
         setSubscriptionsPerConnection(config.getSubscriptionsPerConnection());
         setRetryAttempts(config.getRetryAttempts());
         setRetryInterval(config.getRetryInterval());
         setTimeout(config.getTimeout());
         setClientName(config.getClientName());
-        setPingTimeout(config.getPingTimeout());
         setConnectTimeout(config.getConnectTimeout());
         setIdleConnectionTimeout(config.getIdleConnectionTimeout());
-        setFailedAttempts(config.getFailedAttempts());
-        setReconnectionTimeout(config.getReconnectionTimeout());
         setSslEnableEndpointIdentification(config.isSslEnableEndpointIdentification());
         setSslProvider(config.getSslProvider());
         setSslTruststore(config.getSslTruststore());
         setSslTruststorePassword(config.getSslTruststorePassword());
         setSslKeystore(config.getSslKeystore());
         setSslKeystorePassword(config.getSslKeystorePassword());
+        setSslProtocols(config.getSslProtocols());
+        setPingConnectionInterval(config.getPingConnectionInterval());
+        setKeepAlive(config.isKeepAlive());
+        setTcpNoDelay(config.isTcpNoDelay());
+        setNameMapper(config.getNameMapper());
     }
 
     /**
      * Subscriptions per Redis connection limit
-     * Default is 5
+     * <p>
+     * Default is <code>5</code>
      *
      * @param subscriptionsPerConnection amount
      * @return config
@@ -146,7 +142,8 @@ class BaseConfig<T extends BaseConfig<T>> {
     }
 
     /**
-     * Password for Redis authentication. Should be null if not needed
+     * Password for Redis authentication. Should be null if not needed.
+     * <p>
      * Default is <code>null</code>
      *
      * @param password for connection
@@ -159,6 +156,25 @@ class BaseConfig<T extends BaseConfig<T>> {
 
     public String getPassword() {
         return password;
+    }
+
+    /**
+     * Username for Redis authentication. Should be null if not needed
+     * <p>
+     * Default is <code>null</code>
+     * <p>
+     * Requires Redis 6.0+
+     *
+     * @param username for connection
+     * @return config
+     */
+    public T setUsername(String username) {
+        this.username = username;
+        return (T) this;
+    }
+
+    public String getUsername() {
+        return username;
     }
 
     /**
@@ -183,11 +199,9 @@ class BaseConfig<T extends BaseConfig<T>> {
     /**
      * Defines time interval for another one attempt send Redis command 
      * if it hasn't been sent already.
-     * 
      * <p>
      * Default is <code>1500</code> milliseconds
      *
-     * @see retryAttempts
      * @param retryInterval - time in milliseconds
      * @return config
      */
@@ -220,6 +234,8 @@ class BaseConfig<T extends BaseConfig<T>> {
     /**
      * Setup connection name during connection init
      * via CLIENT SETNAME command
+     * <p>
+     * Default is <code>null</code>
      *
      * @param clientName - name of client
      * @return config
@@ -231,21 +247,6 @@ class BaseConfig<T extends BaseConfig<T>> {
 
     public String getClientName() {
         return clientName;
-    }
-
-    /**
-     * Ping timeout used in <code>Node.ping</code> and <code>Node.pingAll</code> operation
-     *
-     * @param pingTimeout - timeout in milliseconds
-     * @return config
-     */
-    public T setPingTimeout(int pingTimeout) {
-        this.pingTimeout = pingTimeout;
-        return (T) this;
-    }
-
-    public int getPingTimeout() {
-        return pingTimeout;
     }
 
     /**
@@ -269,6 +270,8 @@ class BaseConfig<T extends BaseConfig<T>> {
      * If pooled connection not used for a <code>timeout</code> time
      * and current connections amount bigger than minimum idle connections pool size,
      * then it will closed and removed from pool.
+     * <p>
+     * Default is <code>10000</code> milliseconds.
      *
      * @param idleConnectionTimeout - timeout in milliseconds
      * @return config
@@ -282,49 +285,6 @@ class BaseConfig<T extends BaseConfig<T>> {
         return idleConnectionTimeout;
     }
 
-    /**
-     * Reconnection attempt timeout to Redis server when
-     * it has been excluded from internal list of available servers.
-     * <p>
-     * On every such timeout event Redisson tries
-     * to connect to disconnected Redis server.
-     * <p>
-     * Default is 3000
-     *
-     * @see #failedAttempts
-     *
-     * @param slaveRetryTimeout - retry timeout in milliseconds
-     * @return config
-     */
-
-    public T setReconnectionTimeout(int slaveRetryTimeout) {
-        this.reconnectionTimeout = slaveRetryTimeout;
-        return (T) this;
-    }
-
-    public int getReconnectionTimeout() {
-        return reconnectionTimeout;
-    }
-
-    /**
-     * Redis server will be excluded from the internal list of available nodes
-     * when sequential unsuccessful execution attempts of any Redis command
-     * on this server reaches <code>failedAttempts</code>.
-     * <p>
-     * Default is 3
-     *
-     * @param slaveFailedAttempts - attempts
-     * @return config
-     */
-    public T setFailedAttempts(int slaveFailedAttempts) {
-        this.failedAttempts = slaveFailedAttempts;
-        return (T) this;
-    }
-
-    public int getFailedAttempts() {
-        return failedAttempts;
-    }
-
     public boolean isSslEnableEndpointIdentification() {
         return sslEnableEndpointIdentification;
     }
@@ -332,7 +292,7 @@ class BaseConfig<T extends BaseConfig<T>> {
     /**
      * Enables SSL endpoint identification.
      * <p>
-     * Default is true
+     * Default is <code>true</code>
      * 
      * @param sslEnableEndpointIdentification - boolean value
      * @return config
@@ -349,7 +309,7 @@ class BaseConfig<T extends BaseConfig<T>> {
     /**
      * Defines SSL provider used to handle SSL connections.
      * <p>
-     * Default is JDK
+     * Default is <code>JDK</code>
      * 
      * @param sslProvider - ssl provider 
      * @return config
@@ -359,17 +319,19 @@ class BaseConfig<T extends BaseConfig<T>> {
         return (T) this;
     }
 
-    public URI getSslTruststore() {
+    public URL getSslTruststore() {
         return sslTruststore;
     }
 
     /**
      * Defines path to SSL truststore 
-     * 
+     * <p>
+     * Default is <code>null</code>
+     *
      * @param sslTruststore - path
      * @return config
      */
-    public T setSslTruststore(URI sslTruststore) {
+    public T setSslTruststore(URL sslTruststore) {
         this.sslTruststore = sslTruststore;
         return (T) this;
     }
@@ -380,7 +342,9 @@ class BaseConfig<T extends BaseConfig<T>> {
 
     /**
      * Defines password for SSL truststore
-     * 
+     * <p>
+     * Default is <code>null</code>
+     *
      * @param sslTruststorePassword - password
      * @return config
      */
@@ -389,17 +353,19 @@ class BaseConfig<T extends BaseConfig<T>> {
         return (T) this;
     }
 
-    public URI getSslKeystore() {
+    public URL getSslKeystore() {
         return sslKeystore;
     }
 
     /**
      * Defines path to SSL keystore
-     * 
+     * <p>
+     * Default is <code>null</code>
+     *
      * @param sslKeystore - path to keystore
      * @return config
      */
-    public T setSslKeystore(URI sslKeystore) {
+    public T setSslKeystore(URL sslKeystore) {
         this.sslKeystore = sslKeystore;
         return (T) this;
     }
@@ -410,7 +376,9 @@ class BaseConfig<T extends BaseConfig<T>> {
 
     /**
      * Defines password for SSL keystore
-     * 
+     * <p>
+     * Default is <code>null</code>
+     *
      * @param sslKeystorePassword - password
      * @return config
      */
@@ -419,6 +387,90 @@ class BaseConfig<T extends BaseConfig<T>> {
         return (T) this;
     }
 
-    
-    
+    public String[] getSslProtocols() {
+        return sslProtocols;
+    }
+
+    /**
+     * Defines SSL protocols.
+     * Example values: TLSv1.3, TLSv1.2, TLSv1.1, TLSv1
+     * <p>
+     * Default is <code>null</code>
+     *
+     * @param sslProtocols - protocols
+     * @return config
+     */
+    public T setSslProtocols(String[] sslProtocols) {
+        this.sslProtocols = sslProtocols;
+        return (T) this;
+    }
+
+    public int getPingConnectionInterval() {
+        return pingConnectionInterval;
+    }
+
+    /**
+     * Defines PING command sending interval per connection to Redis.
+     * <code>0</code> means disable.
+     * <p>
+     * Default is <code>30000</code>
+     * 
+     * @param pingConnectionInterval - time in milliseconds
+     * @return config
+     */
+    public T setPingConnectionInterval(int pingConnectionInterval) {
+        this.pingConnectionInterval = pingConnectionInterval;
+        return (T) this;
+    }
+
+    public boolean isKeepAlive() {
+        return keepAlive;
+    }
+
+    /**
+     * Enables TCP keepAlive for connection
+     * <p>
+     * Default is <code>false</code>
+     * 
+     * @param keepAlive - boolean value
+     * @return config
+     */
+    public T setKeepAlive(boolean keepAlive) {
+        this.keepAlive = keepAlive;
+        return (T) this;
+    }
+
+    public boolean isTcpNoDelay() {
+        return tcpNoDelay;
+    }
+
+    /**
+     * Enables TCP noDelay for connection
+     * <p>
+     * Default is <code>true</code>
+     * 
+     * @param tcpNoDelay - boolean value
+     * @return config
+     */
+    public T setTcpNoDelay(boolean tcpNoDelay) {
+        this.tcpNoDelay = tcpNoDelay;
+        return (T) this;
+    }
+
+
+    public NameMapper getNameMapper() {
+        return nameMapper;
+    }
+
+    /**
+     * Defines Name mapper which maps Redisson object name.
+     * Applied to all Redisson objects.
+     *
+     * @param nameMapper - name mapper object
+     * @return config
+     */
+    public T setNameMapper(NameMapper nameMapper) {
+        this.nameMapper = nameMapper;
+        return (T) this;
+    }
 }

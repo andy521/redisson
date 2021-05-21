@@ -1,5 +1,5 @@
 /**
- * Copyright 2016 Nikita Koksharov
+ * Copyright (c) 2013-2021 Nikita Koksharov
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,6 +27,7 @@ import org.redisson.api.RedissonClient;
 import org.redisson.client.codec.StringCodec;
 import org.redisson.client.protocol.RedisCommands;
 import org.redisson.command.CommandAsyncExecutor;
+import org.redisson.misc.RedissonPromise;
 
 /**
  * Sorted set contained values of String type
@@ -53,7 +54,7 @@ public class RedissonLexSortedSet extends RedissonScoredSortedSet<String> implem
     @Override
     public RFuture<Integer> removeRangeHeadAsync(String toElement, boolean toInclusive) {
         String toValue = value(toElement, toInclusive);
-        return commandExecutor.writeAsync(getName(), StringCodec.INSTANCE, RedisCommands.ZREMRANGEBYLEX, getName(), "-", toValue);
+        return commandExecutor.writeAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.ZREMRANGEBYLEX, getRawName(), "-", toValue);
     }
     
     @Override
@@ -64,7 +65,7 @@ public class RedissonLexSortedSet extends RedissonScoredSortedSet<String> implem
     @Override
     public RFuture<Integer> removeRangeTailAsync(String fromElement, boolean fromInclusive) {
         String fromValue = value(fromElement, fromInclusive);
-        return commandExecutor.writeAsync(getName(), StringCodec.INSTANCE, RedisCommands.ZREMRANGEBYLEX, getName(), fromValue, "+");
+        return commandExecutor.writeAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.ZREMRANGEBYLEX, getRawName(), fromValue, "+");
     }
     
     @Override
@@ -73,7 +74,7 @@ public class RedissonLexSortedSet extends RedissonScoredSortedSet<String> implem
         String fromValue = value(fromElement, fromInclusive);
         String toValue = value(toElement, toInclusive);
         
-        return commandExecutor.writeAsync(getName(), StringCodec.INSTANCE, RedisCommands.ZREMRANGEBYLEX, getName(), fromValue, toValue);
+        return commandExecutor.writeAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.ZREMRANGEBYLEX, getRawName(), fromValue, toValue);
     }
     
     @Override
@@ -89,7 +90,7 @@ public class RedissonLexSortedSet extends RedissonScoredSortedSet<String> implem
     @Override
     public RFuture<Collection<String>> rangeHeadAsync(String toElement, boolean toInclusive) {
         String toValue = value(toElement, toInclusive);
-        return commandExecutor.readAsync(getName(), StringCodec.INSTANCE, RedisCommands.ZRANGEBYLEX, getName(), "-", toValue);
+        return commandExecutor.readAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.ZRANGEBYLEX, getRawName(), "-", toValue);
     }
     
     @Override
@@ -100,7 +101,7 @@ public class RedissonLexSortedSet extends RedissonScoredSortedSet<String> implem
     @Override
     public RFuture<Collection<String>> rangeTailAsync(String fromElement, boolean fromInclusive) {
         String fromValue = value(fromElement, fromInclusive);
-        return commandExecutor.readAsync(getName(), StringCodec.INSTANCE, RedisCommands.ZRANGEBYLEX, getName(), fromValue, "+");
+        return commandExecutor.readAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.ZRANGEBYLEX, getRawName(), fromValue, "+");
     }
     
     @Override
@@ -109,7 +110,7 @@ public class RedissonLexSortedSet extends RedissonScoredSortedSet<String> implem
         String fromValue = value(fromElement, fromInclusive);
         String toValue = value(toElement, toInclusive);
         
-        return commandExecutor.readAsync(getName(), StringCodec.INSTANCE, RedisCommands.ZRANGEBYLEX, getName(), fromValue, toValue);
+        return commandExecutor.readAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.ZRANGEBYLEX, getRawName(), fromValue, toValue);
     }
 
     @Override
@@ -126,7 +127,7 @@ public class RedissonLexSortedSet extends RedissonScoredSortedSet<String> implem
     @Override
     public RFuture<Collection<String>> rangeHeadAsync(String toElement, boolean toInclusive, int offset, int count) {
         String toValue = value(toElement, toInclusive);
-        return commandExecutor.readAsync(getName(), StringCodec.INSTANCE, RedisCommands.ZRANGEBYLEX, getName(), "-", toValue, "LIMIT", offset, count);
+        return commandExecutor.readAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.ZRANGEBYLEX, getRawName(), "-", toValue, "LIMIT", offset, count);
     }
 
     @Override
@@ -137,7 +138,7 @@ public class RedissonLexSortedSet extends RedissonScoredSortedSet<String> implem
     @Override
     public RFuture<Collection<String>> rangeTailAsync(String fromElement, boolean fromInclusive, int offset, int count) {
         String fromValue = value(fromElement, fromInclusive);
-        return commandExecutor.readAsync(getName(), StringCodec.INSTANCE, RedisCommands.ZRANGEBYLEX, getName(), fromValue, "+", "LIMIT", offset, count);
+        return commandExecutor.readAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.ZRANGEBYLEX, getRawName(), fromValue, "+", "LIMIT", offset, count);
     }
     
     @Override
@@ -146,9 +147,85 @@ public class RedissonLexSortedSet extends RedissonScoredSortedSet<String> implem
         String fromValue = value(fromElement, fromInclusive);
         String toValue = value(toElement, toInclusive);
         
-        return commandExecutor.readAsync(getName(), StringCodec.INSTANCE, RedisCommands.ZRANGEBYLEX, getName(), fromValue, toValue, "LIMIT", offset, count);
+        return commandExecutor.readAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.ZRANGEBYLEX, getRawName(), fromValue, toValue, "LIMIT", offset, count);
     }
     
+    @Override
+    public Collection<String> rangeTailReversed(String fromElement, boolean fromInclusive) {
+        return get(rangeTailReversedAsync(fromElement, fromInclusive));
+    }
+
+    @Override
+    public Collection<String> rangeHeadReversed(String toElement, boolean toInclusive) {
+        return get(rangeHeadReversedAsync(toElement, toInclusive));
+    }
+
+    @Override
+    public Collection<String> rangeReversed(String fromElement, boolean fromInclusive, String toElement,
+            boolean toInclusive) {
+        return get(rangeReversedAsync(fromElement, fromInclusive, toElement, toInclusive));
+    }
+
+    @Override
+    public Collection<String> rangeTailReversed(String fromElement, boolean fromInclusive, int offset, int count) {
+        return get(rangeTailReversedAsync(fromElement, fromInclusive, offset, count));
+    }
+
+    @Override
+    public Collection<String> rangeHeadReversed(String toElement, boolean toInclusive, int offset, int count) {
+        return get(rangeHeadReversedAsync(toElement, toInclusive, offset, count));
+    }
+
+    @Override
+    public Collection<String> rangeReversed(String fromElement, boolean fromInclusive, String toElement,
+            boolean toInclusive, int offset, int count) {
+        return get(rangeReversedAsync(fromElement, fromInclusive, toElement, toInclusive, offset, count));
+    }
+
+    @Override
+    public RFuture<Collection<String>> rangeTailReversedAsync(String fromElement, boolean fromInclusive) {
+        String fromValue = value(fromElement, fromInclusive);
+        return commandExecutor.readAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.ZREVRANGEBYLEX, getRawName(), "+", fromValue);
+    }
+
+    @Override
+    public RFuture<Collection<String>> rangeHeadReversedAsync(String toElement, boolean toInclusive) {
+        String toValue = value(toElement, toInclusive);
+        return commandExecutor.readAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.ZREVRANGEBYLEX, getRawName(), toValue, "-");
+    }
+
+    @Override
+    public RFuture<Collection<String>> rangeReversedAsync(String fromElement, boolean fromInclusive, String toElement,
+            boolean toInclusive) {
+        String fromValue = value(fromElement, fromInclusive);
+        String toValue = value(toElement, toInclusive);
+        
+        return commandExecutor.readAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.ZREVRANGEBYLEX, getRawName(), toValue, fromValue);
+    }
+
+    @Override
+    public RFuture<Collection<String>> rangeTailReversedAsync(String fromElement, boolean fromInclusive, int offset,
+            int count) {
+        String fromValue = value(fromElement, fromInclusive);
+        return commandExecutor.readAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.ZREVRANGEBYLEX, getRawName(), "+", fromValue, "LIMIT", offset, count);
+    }
+
+    @Override
+    public RFuture<Collection<String>> rangeHeadReversedAsync(String toElement, boolean toInclusive, int offset,
+            int count) {
+        String toValue = value(toElement, toInclusive);
+        return commandExecutor.readAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.ZREVRANGEBYLEX, getRawName(), toValue, "-", "LIMIT", offset, count);
+    }
+
+    @Override
+    public RFuture<Collection<String>> rangeReversedAsync(String fromElement, boolean fromInclusive, String toElement,
+            boolean toInclusive, int offset, int count) {
+        String fromValue = value(fromElement, fromInclusive);
+        String toValue = value(toElement, toInclusive);
+        
+        return commandExecutor.readAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.ZREVRANGEBYLEX, getRawName(), toValue, fromValue, "LIMIT", offset, count);
+    }
+
     @Override
     public int countTail(String fromElement, boolean fromInclusive) {
         return get(countTailAsync(fromElement, fromInclusive));
@@ -158,7 +235,7 @@ public class RedissonLexSortedSet extends RedissonScoredSortedSet<String> implem
     public RFuture<Integer> countTailAsync(String fromElement, boolean fromInclusive) {
         String fromValue = value(fromElement, fromInclusive);
         
-        return commandExecutor.readAsync(getName(), StringCodec.INSTANCE, RedisCommands.ZLEXCOUNT, getName(), fromValue, "+");
+        return commandExecutor.readAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.ZLEXCOUNT, getRawName(), fromValue, "+");
     }
 
     @Override
@@ -170,7 +247,7 @@ public class RedissonLexSortedSet extends RedissonScoredSortedSet<String> implem
     public RFuture<Integer> countHeadAsync(String toElement, boolean toInclusive) {
         String toValue = value(toElement, toInclusive);
         
-        return commandExecutor.readAsync(getName(), StringCodec.INSTANCE, RedisCommands.ZLEXCOUNT, getName(), "-", toValue);
+        return commandExecutor.readAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.ZLEXCOUNT, getRawName(), "-", toValue);
     }
 
     @Override
@@ -184,7 +261,7 @@ public class RedissonLexSortedSet extends RedissonScoredSortedSet<String> implem
         String fromValue = value(fromElement, fromInclusive);
         String toValue = value(toElement, toInclusive);
         
-        return commandExecutor.readAsync(getName(), StringCodec.INSTANCE, RedisCommands.ZLEXCOUNT, getName(), fromValue, toValue);
+        return commandExecutor.readAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.ZLEXCOUNT, getRawName(), fromValue, toValue);
     }
     
     private String value(String fromElement, boolean fromInclusive) {
@@ -199,21 +276,21 @@ public class RedissonLexSortedSet extends RedissonScoredSortedSet<String> implem
 
     @Override
     public RFuture<Boolean> addAsync(String e) {
-        return commandExecutor.writeAsync(getName(), StringCodec.INSTANCE, RedisCommands.ZADD_BOOL_RAW, getName(), 0, e);
+        return commandExecutor.writeAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.ZADD_BOOL_RAW, getRawName(), 0, e);
     }
 
     @Override
     public RFuture<Boolean> addAllAsync(Collection<? extends String> c) {
         if (c.isEmpty()) {
-            return newSucceededFuture(false);
+            return RedissonPromise.newSucceededFuture(false);
         }
         List<Object> params = new ArrayList<Object>(2*c.size());
-        params.add(getName());
+        params.add(getRawName());
         for (Object param : c) {
             params.add(0);
             params.add(param);
         }
-        return commandExecutor.writeAsync(getName(), StringCodec.INSTANCE, RedisCommands.ZADD_BOOL_RAW, params.toArray());
+        return commandExecutor.writeAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.ZADD_BOOL_RAW, params.toArray());
     }
 
     @Override
